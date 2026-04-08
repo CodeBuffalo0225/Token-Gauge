@@ -22,16 +22,14 @@ function buildArc(fraction, filledColor) {
   const emptyCount = ARC_WIDTH - filledCount;
 
   let arc = '';
-  if (filledCount > 0) {
+  if (filledCount > 0 && filledCount < ARC_WIDTH) {
     arc += filledColor('█'.repeat(filledCount));
-  }
-  // Needle at boundary
-  if (filledCount < ARC_WIDTH) {
     arc += chalk.white('▲');
     arc += chalk.gray('░'.repeat(emptyCount - 1));
+  } else if (filledCount >= ARC_WIDTH) {
+    arc = filledColor('█'.repeat(ARC_WIDTH - 1)) + chalk.white('▲');
   } else {
-    // Full — needle at end
-    arc = filledColor('█'.repeat(filledCount - 1)) + chalk.white('▲');
+    arc = chalk.white('▲') + chalk.gray('░'.repeat(ARC_WIDTH - 1));
   }
   return arc;
 }
@@ -43,13 +41,13 @@ function tankColor(pct) {
 }
 
 function mptColor(avg) {
-  if (avg < 1000) return chalk.blue;
+  if (avg <= 1000) return chalk.blue;
   if (avg <= 3000) return chalk.yellow;
   return chalk.red;
 }
 
 function mptLabel(avg) {
-  if (avg < 1000) return chalk.blue('EFFICIENT');
+  if (avg <= 1000) return chalk.blue('EFFICIENT');
   if (avg <= 3000) return chalk.yellow('MODERATE');
   return chalk.red('HEAVY');
 }
@@ -61,10 +59,6 @@ function pad(str, len) {
   const left = Math.floor(diff / 2);
   const right = diff - left;
   return ' '.repeat(left) + str + ' '.repeat(right);
-}
-
-function boxWidth(inner) {
-  return inner + 4; // 2 border + 2 padding
 }
 
 export function renderDashboard(session, maxTokens) {
@@ -92,8 +86,8 @@ export function renderDashboard(session, maxTokens) {
   const tankTitle = ' CONTEXT TANK ';
   const mptTitle = ' EFFICIENCY (MPT) ';
 
-  const tankBorder = '═'.repeat(Math.max(0, (tankW - tankTitle.length) / 2));
-  const mptBorder = '═'.repeat(Math.max(0, (mptW - mptTitle.length) / 2));
+  const tankBorder = '═'.repeat(Math.max(0, Math.floor((tankW - tankTitle.length) / 2)));
+  const mptBorder = '═'.repeat(Math.max(0, Math.floor((mptW - mptTitle.length) / 2)));
 
   const lines = [
     '',
@@ -138,21 +132,23 @@ export function renderDashboard(session, maxTokens) {
         left: '│', 'left-mid': '├', mid: '─', 'mid-mid': '┼',
         right: '│', 'right-mid': '┤', middle: '│',
       },
-      colWidths: [5, 12, 12, 12, 14],
-      colAligns: ['center', 'center', 'center', 'center', 'center'],
+      colWidths: [5, 12, 12, 12, 14, 10],
+      colAligns: ['center', 'center', 'center', 'center', 'center', 'center'],
     });
 
     logTable.push(
-      [chalk.bold('#'), chalk.bold('Tokens ↑'), chalk.bold('Tokens ↓'), chalk.bold('Total'), chalk.bold('Running')],
+      [chalk.bold('#'), chalk.bold('Tokens ↑'), chalk.bold('Tokens ↓'), chalk.bold('Total'), chalk.bold('Running'), chalk.bold('Mode')],
     );
 
-    for (const entry of recentPrompts.reverse()) {
+    for (const entry of [...recentPrompts].reverse()) {
+      const pre = entry.estimated ? chalk.dim('~') : '';
       logTable.push([
         entry.index,
-        formatNum(entry.inputTokens),
-        formatNum(entry.outputTokens),
-        formatNum(entry.total),
+        entry.estimated ? chalk.dim(`~${formatNum(entry.inputTokens)}`) : formatNum(entry.inputTokens),
+        entry.estimated ? chalk.dim(`~${formatNum(entry.outputTokens)}`) : formatNum(entry.outputTokens),
+        entry.estimated ? chalk.dim(`~${formatNum(entry.total)}`) : formatNum(entry.total),
         formatNum(entry.cumulative),
+        entry.mode || 'live',
       ]);
     }
 

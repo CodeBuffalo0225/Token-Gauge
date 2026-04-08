@@ -37,7 +37,7 @@ export function resetSession() {
   return session;
 }
 
-export function recordPrompt(session, inputTokens, outputTokens) {
+export function recordPrompt(session, inputTokens, outputTokens, mode, opts = {}) {
   session.totalInputTokens += inputTokens;
   session.totalOutputTokens += outputTokens;
   session.promptCount += 1;
@@ -45,14 +45,20 @@ export function recordPrompt(session, inputTokens, outputTokens) {
   const total = inputTokens + outputTokens;
   const cumulative = session.totalInputTokens + session.totalOutputTokens;
 
-  session.promptLog.push({
+  const entry = {
     index: session.promptCount,
     inputTokens,
     outputTokens,
     total,
     cumulative,
+    mode,
+    estimated: mode === 'estimate',
     timestamp: new Date().toISOString(),
-  });
+  };
+
+  if (opts.label) entry.label = opts.label;
+
+  session.promptLog.push(entry);
 
   // Keep last 10 entries
   if (session.promptLog.length > 10) {

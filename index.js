@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 
-import Anthropic from '@anthropic-ai/sdk';
 import readline from 'readline';
-import { loadSession, resetSession, recordPrompt } from './tracker.js';
+import chalk from 'chalk';
+import { loadSession, resetSession } from './tracker.js';
 import { renderDashboard } from './gauge.js';
+import { runLive } from './modes/live.js';
+import { runManual } from './modes/manual.js';
+import { runEstimate } from './modes/estimate.js';
 
 const DEFAULT_MAX_TOKENS = 200_000;
-const MODEL = 'claude-sonnet-4-20250514';
 
 function parseArgs(argv) {
   const args = {
+    mode: null,
     prompt: null,
     maxTokens: DEFAULT_MAX_TOKENS,
     reset: false,
@@ -19,9 +22,11 @@ function parseArgs(argv) {
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--prompt' && argv[i + 1]) {
+    if (arg === '--mode' && argv[i + 1]) {
+      args.mode = argv[++i];
+    } else if (arg === '--prompt' && argv[i + 1]) {
       args.prompt = argv[++i];
-    } else if (arg === '--max-tokens' && argv[i + 1]) {
+    } else if ((arg === '--max-tokens' || arg === '--context') && argv[i + 1]) {
       args.maxTokens = parseInt(argv[++i], 10);
     } else if (arg === '--reset') {
       args.reset = true;
@@ -35,64 +40,39 @@ function parseArgs(argv) {
   return args;
 }
 
-async function sendPrompt(client, prompt) {
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const text = response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n');
-
-  return {
-    text,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  };
-}
-
 function clearScreen() {
   process.stdout.write('\x1Bc');
 }
 
-async function interactiveMode(client, session, maxTokens) {
+async function showModePicker() {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
-  const askQuestion = () => {
-    rl.question('\n🔵 Enter prompt (or "quit" to exit): ', async (input) => {
-      const trimmed = input.trim();
-      if (!trimmed || trimmed.toLowerCase() === 'quit' || trimmed.toLowerCase() === 'exit') {
-        rl.close();
-        console.log('Goodbye!');
-        process.exit(0);
+  console.log('');
+  console.log(chalk.bold('Token Gauge v2 — Pick your tracking mode'));
+  console.log('─'.repeat(42));
+  console.log(`  ${chalk.green('1)')} Live API    — Route prompts through Claude API (requires API key)`);
+  console.log(`  ${chalk.blue('2)')} Manual      — Paste token counts from console.anthropic.com/usage`);
+  console.log(`  ${chalk.cyan('3)')} Estimate    — Estimate usage from message text (no key needed)`);
+  console.log(`  ${chalk.yellow('4)')} Status      — Show current dashboard only`);
+  console.log('');
+
+  return new Promise((resolve) => {
+    rl.question('> ', (answer) => {
+      rl.close();
+      const choice = answer.trim();
+      if (choice === '1') resolve('live');
+      else if (choice === '2') resolve('manual');
+      else if (choice === '3') resolve('estimate');
+      else if (choice === '4') resolve('status');
+      else {
+        console.log(chalk.red('Invalid choice.'));
+        process.exit(1);
       }
-
-      try {
-        const result = await sendPrompt(client, trimmed);
-        session = recordPrompt(session, result.inputTokens, result.outputTokens);
-
-        clearScreen();
-        renderDashboard(session, maxTokens);
-        console.log('─'.repeat(60));
-        console.log(result.text);
-      } catch (err) {
-        console.error('API Error:', err.message);
-      }
-
-      askQuestion();
     });
-  };
-
-  // Show current status first
-  clearScreen();
-  renderDashboard(session, maxTokens);
-  askQuestion();
+  });
 }
 
 async function main() {
@@ -100,19 +80,19 @@ async function main() {
 
   if (args.reset) {
     const session = resetSession();
-    console.log('Session reset.');
+    console.log(chalk.green('Session reset.'));
     renderDashboard(session, args.maxTokens);
     return;
   }
 
-  let session = loadSession();
-
   if (args.status) {
+    const session = loadSession();
     renderDashboard(session, args.maxTokens);
     return;
   }
 
   if (args.watch) {
+    let session = loadSession();
     clearScreen();
     renderDashboard(session, args.maxTokens);
     setInterval(() => {
@@ -123,31 +103,27 @@ async function main() {
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('Error: ANTHROPIC_API_KEY environment variable is required.');
-    console.error('Set it with: export ANTHROPIC_API_KEY=your_key_here');
-    process.exit(1);
+  let mode = args.mode;
+  if (!mode) {
+    mode = await showModePicker();
   }
 
-  const client = new Anthropic();
+  if (mode === 'status') {
+    const session = loadSession();
+    renderDashboard(session, args.maxTokens);
+    return;
+  }
 
-  if (args.prompt) {
-    // One-shot mode
-    try {
-      const result = await sendPrompt(client, args.prompt);
-      session = recordPrompt(session, result.inputTokens, result.outputTokens);
-
-      clearScreen();
-      renderDashboard(session, args.maxTokens);
-      console.log('─'.repeat(60));
-      console.log(result.text);
-    } catch (err) {
-      console.error('API Error:', err.message);
-      process.exit(1);
-    }
+  if (mode === 'live') {
+    await runLive(args);
+  } else if (mode === 'manual') {
+    await runManual(args);
+  } else if (mode === 'estimate') {
+    await runEstimate(args);
   } else {
-    // Interactive mode
-    await interactiveMode(client, session, args.maxTokens);
+    console.error(chalk.red(`Unknown mode: ${mode}`));
+    console.error('Valid modes: live, manual, estimate');
+    process.exit(1);
   }
 }
 
