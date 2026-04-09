@@ -85,14 +85,14 @@ function tankColor(pct) {
 }
 
 function mptColor(avg) {
-  if (avg <= 1000) return chalk.blue;
-  if (avg <= 3000) return chalk.yellow;
+  if (avg <= 3000) return chalk.blue;
+  if (avg <= 8000) return chalk.yellow;
   return chalk.red;
 }
 
 function mptLabel(avg) {
-  if (avg <= 1000) return chalk.blue('EFFICIENT');
-  if (avg <= 3000) return chalk.yellow('MODERATE');
+  if (avg <= 3000) return chalk.blue('EFFICIENT');
+  if (avg <= 8000) return chalk.yellow('MODERATE');
   return chalk.red('HEAVY');
 }
 
@@ -128,7 +128,7 @@ export function renderDashboard(session, maxTokens) {
 
   // ── MPT GAUGE (inverted: high MPT = left, low MPT = right) ──
   // Invert: fraction = 1 - (avg / max) so heavy usage fills LEFT
-  const mptMax = 5000;
+  const mptMax = 15000;
   const mptFrac = 1 - Math.min(1, avg / mptMax);
   const mptArc = buildSemicircle(mptFrac, mptColor(avg));
   const mptTitle = ' EFFICIENCY (MPT) ';
@@ -156,7 +156,7 @@ export function renderDashboard(session, maxTokens) {
   // Labels row (E/F for tank, 5k/500 for MPT)
   const tankLabels = centerText('E' + ' '.repeat(ARC_FULL_WIDTH - 2) + 'F', BOX_INNER);
   // MPT is inverted: heavy (5k) on LEFT, efficient (500) on RIGHT
-  const mptLabels = centerText('5k' + ' '.repeat(ARC_FULL_WIDTH - 4) + '500', BOX_INNER);
+  const mptLabels = centerText('15k' + ' '.repeat(ARC_FULL_WIDTH - 5) + '500', BOX_INNER);
   lines.push(
     `  ║ ${tankLabels} ║` +
     `   ║ ${mptLabels} ║`
