@@ -2,7 +2,41 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { getTotalTokens, getAvgTokensPerPrompt, getPromptsLeft } from './tracker.js';
 
-const ARC_WIDTH = 20;
+// ── Semicircle arc layout ──────────────────────────────────
+//
+//        ╱ ─ ─ ─ ╲          11 positions along the arc
+//      ╱     |     ╲        Needle (●) placed at one position
+//    │       |       │      Fill uses bold/color, remainder dim
+//    E               F
+//
+// Positions map to fractions 0.0 → 1.0 left-to-right
+
+const ARC_TEMPLATE = [
+  //  row 0 (top):       positions 3,4,5,6,7
+  //  row 1 (mid-upper): positions 2 and 8
+  //  row 2 (mid-lower): positions 1 and 9
+  //  row 3 (bottom):    positions 0 and 10
+];
+
+// Each slot: [row, col-offset-from-center, character]
+const ARC_SLOTS = [
+  { row: 3, col: -10, ch: '│' },  // pos 0  (far left)
+  { row: 2, col: -8,  ch: '╱' },  // pos 1
+  { row: 1, col: -6,  ch: '╱' },  // pos 2
+  { row: 0, col: -4,  ch: '─' },  // pos 3
+  { row: 0, col: -2,  ch: '─' },  // pos 4
+  { row: 0, col: 0,   ch: '─' },  // pos 5  (top center)
+  { row: 0, col: 2,   ch: '─' },  // pos 6
+  { row: 0, col: 4,   ch: '─' },  // pos 7
+  { row: 1, col: 6,   ch: '╲' },  // pos 8
+  { row: 2, col: 8,   ch: '╲' },  // pos 9
+  { row: 3, col: 10,  ch: '│' },  // pos 10 (far right)
+];
+
+const TOTAL_SLOTS = ARC_SLOTS.length; // 11
+const ARC_ROWS = 4;
+const ARC_HALF_WIDTH = 12; // chars from center to edge
+const ARC_FULL_WIDTH = ARC_HALF_WIDTH * 2 + 1; // 25
 
 function formatNum(n) {
   if (n === Infinity) return '∞';
@@ -16,22 +50,32 @@ function shortNum(n) {
   return String(n);
 }
 
-function buildArc(fraction, filledColor) {
+function buildSemicircle(fraction, colorFn) {
   const clamped = Math.max(0, Math.min(1, fraction));
-  const filledCount = Math.round(clamped * ARC_WIDTH);
-  const emptyCount = ARC_WIDTH - filledCount;
+  const needlePos = Math.round(clamped * (TOTAL_SLOTS - 1));
 
-  let arc = '';
-  if (filledCount > 0 && filledCount < ARC_WIDTH) {
-    arc += filledColor('█'.repeat(filledCount));
-    arc += chalk.white('▲');
-    arc += chalk.gray('░'.repeat(emptyCount - 1));
-  } else if (filledCount >= ARC_WIDTH) {
-    arc = filledColor('█'.repeat(ARC_WIDTH - 1)) + chalk.white('▲');
-  } else {
-    arc = chalk.white('▲') + chalk.gray('░'.repeat(ARC_WIDTH - 1));
+  // Build a 4-row × ARC_FULL_WIDTH grid of spaces
+  const grid = [];
+  for (let r = 0; r < ARC_ROWS; r++) {
+    grid.push(new Array(ARC_FULL_WIDTH).fill(' '));
   }
-  return arc;
+
+  // Place each slot character
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    const slot = ARC_SLOTS[i];
+    const col = ARC_HALF_WIDTH + slot.col;
+    if (i === needlePos) {
+      grid[slot.row][col] = chalk.white.bold('●');
+    } else if (i < needlePos) {
+      // Filled (before needle)
+      grid[slot.row][col] = colorFn(slot.ch);
+    } else {
+      // Empty (after needle)
+      grid[slot.row][col] = chalk.gray(slot.ch);
+    }
+  }
+
+  return grid.map((row) => row.join(''));
 }
 
 function tankColor(pct) {
@@ -52,13 +96,18 @@ function mptLabel(avg) {
   return chalk.red('HEAVY');
 }
 
-function pad(str, len) {
-  const raw = str.replace(/\x1B\[[0-9;]*m/g, '');
-  const diff = len - raw.length;
-  if (diff <= 0) return str;
-  const left = Math.floor(diff / 2);
-  const right = diff - left;
-  return ' '.repeat(left) + str + ' '.repeat(right);
+function centerText(text, width) {
+  const raw = text.replace(/\x1B\[[0-9;]*m/g, '');
+  const pad = Math.max(0, width - raw.length);
+  const left = Math.floor(pad / 2);
+  const right = pad - left;
+  return ' '.repeat(left) + text + ' '.repeat(right);
+}
+
+function boxLine(content, width) {
+  const raw = content.replace(/\x1B\[[0-9;]*m/g, '');
+  const pad = Math.max(0, width - raw.length);
+  return '║ ' + content + ' '.repeat(pad) + ' ║';
 }
 
 export function renderDashboard(session, maxTokens) {
@@ -67,40 +116,76 @@ export function renderDashboard(session, maxTokens) {
   const avg = getAvgTokensPerPrompt(session);
   const left = getPromptsLeft(session, maxTokens);
 
-  // --- TANK GAUGE ---
-  const tankW = 28;
-  const tankArc = buildArc(pct, tankColor(pct));
-  const tankLine1 = pad(`E ${tankArc} F`, tankW);
-  const tankLine2 = pad(`${formatNum(total)} / ${shortNum(maxTokens)}`, tankW);
-  const tankLine3 = pad(`${(pct * 100).toFixed(1)}%`, tankW);
+  const BOX_INNER = ARC_FULL_WIDTH + 2; // content width inside box
+  const BOX_OUTER = BOX_INNER + 4;      // with ║ + space on each side
 
-  // --- MPT GAUGE ---
-  const mptW = 32;
-  const mptMax = 5000;
-  const mptFrac = Math.min(1, avg / mptMax);
-  const mptArc = buildArc(mptFrac, mptColor(avg));
-  const mptLine1 = pad(`5k ${mptArc} 500`, mptW);
-  const mptLine2 = pad(`avg ${formatNum(avg)} tok/prompt`, mptW);
-  const mptLine3 = pad(mptLabel(avg), mptW);
-
+  // ── CONTEXT TANK (fills left→right: 0% = left, 100% = right) ──
+  const tankArc = buildSemicircle(pct, tankColor(pct));
   const tankTitle = ' CONTEXT TANK ';
+  const tankBorderLen = Math.max(0, Math.floor((BOX_INNER - tankTitle.length) / 2));
+  const tankTopBorder = '═'.repeat(tankBorderLen);
+  const tankTopExtra = '═'.repeat(BOX_INNER - tankBorderLen * 2 - tankTitle.length);
+
+  // ── MPT GAUGE (inverted: high MPT = left, low MPT = right) ──
+  // Invert: fraction = 1 - (avg / max) so heavy usage fills LEFT
+  const mptMax = 5000;
+  const mptFrac = 1 - Math.min(1, avg / mptMax);
+  const mptArc = buildSemicircle(mptFrac, mptColor(avg));
   const mptTitle = ' EFFICIENCY (MPT) ';
+  const mptBorderLen = Math.max(0, Math.floor((BOX_INNER - mptTitle.length) / 2));
+  const mptTopBorder = '═'.repeat(mptBorderLen);
+  const mptTopExtra = '═'.repeat(BOX_INNER - mptBorderLen * 2 - mptTitle.length);
 
-  const tankBorder = '═'.repeat(Math.max(0, Math.floor((tankW - tankTitle.length) / 2)));
-  const mptBorder = '═'.repeat(Math.max(0, Math.floor((mptW - mptTitle.length) / 2)));
+  // Render side-by-side
+  const lines = [''];
 
-  const lines = [
-    '',
-    `     ╔${tankBorder}${tankTitle}${tankBorder}╗    ╔${mptBorder}${mptTitle}${mptBorder}╗`,
-    `     ║  ${tankLine1}  ║    ║  ${mptLine1}  ║`,
-    `     ║  ${tankLine2}  ║    ║  ${mptLine2}  ║`,
-    `     ║  ${tankLine3}  ║    ║  ${mptLine3}  ║`,
-    `     ╚${'═'.repeat(tankW + 2)}╝    ╚${'═'.repeat(mptW + 2)}╝`,
-  ];
+  // Top borders
+  lines.push(
+    `  ╔${tankTopBorder}${tankTitle}${tankTopBorder}${tankTopExtra}╗` +
+    `   ╔${mptTopBorder}${mptTitle}${mptTopBorder}${mptTopExtra}╗`
+  );
+
+  // Arc rows
+  for (let r = 0; r < ARC_ROWS; r++) {
+    lines.push(
+      `  ║ ${tankArc[r]} ║` +
+      `   ║ ${mptArc[r]} ║`
+    );
+  }
+
+  // Labels row (E/F for tank, 5k/500 for MPT)
+  const tankLabels = centerText('E' + ' '.repeat(ARC_FULL_WIDTH - 2) + 'F', BOX_INNER);
+  // MPT is inverted: heavy (5k) on LEFT, efficient (500) on RIGHT
+  const mptLabels = centerText('5k' + ' '.repeat(ARC_FULL_WIDTH - 4) + '500', BOX_INNER);
+  lines.push(
+    `  ║ ${tankLabels} ║` +
+    `   ║ ${mptLabels} ║`
+  );
+
+  // Value rows
+  const tankVal = centerText(`${formatNum(total)} / ${shortNum(maxTokens)}`, BOX_INNER);
+  const mptVal = centerText(`avg ${formatNum(avg)} tok/prompt`, BOX_INNER);
+  lines.push(
+    `  ║ ${tankVal} ║` +
+    `   ║ ${mptVal} ║`
+  );
+
+  const tankPct = centerText(`${(pct * 100).toFixed(1)}%`, BOX_INNER);
+  const mptLbl = centerText(mptLabel(avg), BOX_INNER);
+  lines.push(
+    `  ║ ${tankPct} ║` +
+    `   ║ ${mptLbl} ║`
+  );
+
+  // Bottom borders
+  lines.push(
+    `  ╚${'═'.repeat(BOX_INNER + 2)}╝` +
+    `   ╚${'═'.repeat(BOX_INNER + 2)}╝`
+  );
 
   console.log(lines.join('\n'));
 
-  // --- METRICS STRIP ---
+  // ── METRICS STRIP ──
   const tankLevel = pct < 0.25 ? 'Plenty left' : pct < 0.5 ? 'Good shape' : pct < 0.75 ? 'Getting low' : 'Running out';
 
   const metricsTable = new Table({
@@ -122,7 +207,7 @@ export function renderDashboard(session, maxTokens) {
 
   console.log('\n' + metricsTable.toString());
 
-  // --- PROMPT LOG ---
+  // ── PROMPT LOG ──
   const recentPrompts = session.promptLog.slice(-5);
   if (recentPrompts.length > 0) {
     const logTable = new Table({
@@ -141,7 +226,6 @@ export function renderDashboard(session, maxTokens) {
     );
 
     for (const entry of [...recentPrompts].reverse()) {
-      const pre = entry.estimated ? chalk.dim('~') : '';
       logTable.push([
         entry.index,
         entry.estimated ? chalk.dim(`~${formatNum(entry.inputTokens)}`) : formatNum(entry.inputTokens),
