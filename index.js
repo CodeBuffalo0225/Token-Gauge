@@ -2,7 +2,7 @@
 
 import readline from 'readline';
 import chalk from 'chalk';
-import { loadSession, resetSession } from './tracker.js';
+import { loadSession, resetSession, setMaxTokens } from './tracker.js';
 import { renderDashboard } from './gauge.js';
 import { runLive } from './modes/live.js';
 import { runManual } from './modes/manual.js';
@@ -44,6 +44,31 @@ function clearScreen() {
   process.stdout.write('\x1Bc');
 }
 
+async function promptContextWindow() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  console.log('');
+  console.log(chalk.bold('Context window size:'));
+  console.log(`  ${chalk.green('200,000')} — claude-sonnet / opus (default)`);
+  console.log(`  ${chalk.blue('128,000')} — claude-haiku`);
+  console.log(`  ${chalk.yellow(' 32,000')} — legacy / custom`);
+  console.log('');
+
+  return new Promise((resolve) => {
+    rl.question('Enter context window size (default 200000): ', (answer) => {
+      rl.close();
+      const trimmed = answer.trim().replace(/,/g, '');
+      if (!trimmed) return resolve(DEFAULT_MAX_TOKENS);
+      const val = parseInt(trimmed, 10);
+      if (isNaN(val) || val <= 0) return resolve(DEFAULT_MAX_TOKENS);
+      resolve(val);
+    });
+  });
+}
+
 async function showModePicker() {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -77,28 +102,45 @@ async function showModePicker() {
 
 async function main() {
   const args = parseArgs(process.argv);
+  let session = loadSession();
 
   if (args.reset) {
-    const session = resetSession();
+    session = resetSession();
     console.log(chalk.green('Session reset.'));
     renderDashboard(session, args.maxTokens);
     return;
   }
 
+  // Resolve maxTokens: CLI flag > saved session value > interactive prompt
+  const cliMaxProvided = process.argv.some(a => a === '--max-tokens' || a === '--context');
+  let maxTokens;
+
+  if (cliMaxProvided) {
+    maxTokens = args.maxTokens;
+    setMaxTokens(session, maxTokens);
+  } else if (session.maxTokens) {
+    maxTokens = session.maxTokens;
+  } else if (args.status || args.watch) {
+    maxTokens = DEFAULT_MAX_TOKENS;
+  } else {
+    maxTokens = await promptContextWindow();
+    setMaxTokens(session, maxTokens);
+  }
+
+  args.maxTokens = maxTokens;
+
   if (args.status) {
-    const session = loadSession();
-    renderDashboard(session, args.maxTokens);
+    renderDashboard(session, maxTokens);
     return;
   }
 
   if (args.watch) {
-    let session = loadSession();
     clearScreen();
-    renderDashboard(session, args.maxTokens);
+    renderDashboard(session, maxTokens);
     setInterval(() => {
       session = loadSession();
       clearScreen();
-      renderDashboard(session, args.maxTokens);
+      renderDashboard(session, maxTokens);
     }, 2000);
     return;
   }
@@ -109,8 +151,7 @@ async function main() {
   }
 
   if (mode === 'status') {
-    const session = loadSession();
-    renderDashboard(session, args.maxTokens);
+    renderDashboard(session, maxTokens);
     return;
   }
 

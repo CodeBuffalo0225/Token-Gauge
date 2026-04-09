@@ -50,7 +50,8 @@ function shortNum(n) {
   return String(n);
 }
 
-function buildSemicircle(fraction, colorFn) {
+// fillDir: 'ltr' = fill left-to-right, 'rtl' = fill right-to-left
+function buildSemicircle(fraction, colorFn, fillDir = 'ltr') {
   const clamped = Math.max(0, Math.min(1, fraction));
   const needlePos = Math.round(clamped * (TOTAL_SLOTS - 1));
 
@@ -66,11 +67,11 @@ function buildSemicircle(fraction, colorFn) {
     const col = ARC_HALF_WIDTH + slot.col;
     if (i === needlePos) {
       grid[slot.row][col] = chalk.white.bold('●');
-    } else if (i < needlePos) {
-      // Filled (before needle)
+    } else if (fillDir === 'ltr' ? i < needlePos : i > needlePos) {
+      // Filled region
       grid[slot.row][col] = colorFn(slot.ch);
     } else {
-      // Empty (after needle)
+      // Empty region
       grid[slot.row][col] = chalk.gray(slot.ch);
     }
   }
@@ -119,18 +120,19 @@ export function renderDashboard(session, maxTokens) {
   const BOX_INNER = ARC_FULL_WIDTH + 2; // content width inside box
   const BOX_OUTER = BOX_INNER + 4;      // with ║ + space on each side
 
-  // ── CONTEXT TANK (fills left→right: 0% = left, 100% = right) ──
-  const tankArc = buildSemicircle(pct, tankColor(pct));
+  // ── CONTEXT TANK (inverted: F=full on right, E=empty on left) ──
+  // Needle starts at right (F) and moves left toward E as tokens are consumed
+  const tankFrac = 1 - pct; // invert: 0% used = needle at right (F), 100% = left (E)
+  const tankArc = buildSemicircle(tankFrac, tankColor(pct), 'rtl');
   const tankTitle = ' CONTEXT TANK ';
   const tankBorderLen = Math.max(0, Math.floor((BOX_INNER - tankTitle.length) / 2));
   const tankTopBorder = '═'.repeat(tankBorderLen);
   const tankTopExtra = '═'.repeat(BOX_INNER - tankBorderLen * 2 - tankTitle.length);
 
-  // ── MPT GAUGE (inverted: high MPT = left, low MPT = right) ──
-  // Invert: fraction = 1 - (avg / max) so heavy usage fills LEFT
+  // ── MPT GAUGE (high MPT = needle left near 15k, low MPT = needle right near 500) ──
   const mptMax = 15000;
-  const mptFrac = 1 - Math.min(1, avg / mptMax);
-  const mptArc = buildSemicircle(mptFrac, mptColor(avg));
+  const mptFrac = Math.min(1, avg / mptMax); // 0 = right (efficient), 1 = left (heavy)
+  const mptArc = buildSemicircle(1 - mptFrac, mptColor(avg), 'rtl');
   const mptTitle = ' EFFICIENCY (MPT) ';
   const mptBorderLen = Math.max(0, Math.floor((BOX_INNER - mptTitle.length) / 2));
   const mptTopBorder = '═'.repeat(mptBorderLen);

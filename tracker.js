@@ -11,8 +11,15 @@ function createEmptySession() {
     totalOutputTokens: 0,
     promptCount: 0,
     promptLog: [],
+    maxTokens: null,
     sessionStart: new Date().toISOString(),
   };
+}
+
+export function setMaxTokens(session, maxTokens) {
+  session.maxTokens = maxTokens;
+  saveSession(session);
+  return session;
 }
 
 export function loadSession() {
