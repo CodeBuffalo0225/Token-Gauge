@@ -120,10 +120,11 @@ export function renderDashboard(session, maxTokens) {
   const BOX_INNER = ARC_FULL_WIDTH + 2; // content width inside box
   const BOX_OUTER = BOX_INNER + 4;      // with ║ + space on each side
 
-  // ── CONTEXT TANK (inverted: F=full on right, E=empty on left) ──
-  // Needle starts at right (F) and moves left toward E as tokens are consumed
-  const tankFrac = 1 - pct; // invert: 0% used = needle at right (F), 100% = left (E)
-  const tankArc = buildSemicircle(tankFrac, tankColor(pct), 'rtl');
+  // ── CONTEXT TANK (E=left, F=right, fill from E to needle) ──
+  // Needle at right (F) when full, sweeps left toward E as tokens are consumed
+  // Fill lights up from E (left) to needle — full tank = entire arc lit green
+  const tankFrac = 1 - pct; // 0% used = needle at right (F), 100% = left (E)
+  const tankArc = buildSemicircle(tankFrac, tankColor(pct), 'ltr');
   const tankTitle = ' CONTEXT TANK ';
   const tankBorderLen = Math.max(0, Math.floor((BOX_INNER - tankTitle.length) / 2));
   const tankTopBorder = '═'.repeat(tankBorderLen);
