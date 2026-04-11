@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Token Gauge — Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>Token Gauge</h1>
+    <p class="tagline">The Fuel Gauge of AI — measure your Claude token usage.</p>
+  </header>
+
+  <main class="dashboard">
+    <!-- ── GAUGES ───────────────────────────────────────── -->
+    <section class="gauges">
+      <!-- Context Tank Gauge -->
+      <div class="gauge-card">
+        <h2>Context Tank</h2>
+        <svg class="gauge-svg" viewBox="0 0 200 130" aria-label="Context tank gauge">
+          <!-- Background arc -->
+          <path id="tank-bg" d="M 20 110 A 80 80 0 0 1 180 110"
+                fill="none" stroke="#333" stroke-width="14" stroke-linecap="round" />
+          <!-- Filled arc (from E to needle) -->
+          <path id="tank-fill" d="M 20 110 A 80 80 0 0 1 180 110"
+                fill="none" stroke="#1D9E75" stroke-width="14" stroke-linecap="round"
+                stroke-dasharray="251.3 251.3" stroke-dashoffset="0" />
+          <!-- Needle -->
+          <line id="tank-needle" x1="100" y1="110" x2="180" y2="110"
+                stroke="#fff" stroke-width="3" stroke-linecap="round" />
+          <circle cx="100" cy="110" r="5" fill="#fff" />
+          <!-- Labels -->
+          <text x="20" y="128" class="gauge-label">E</text>
+          <text x="175" y="128" class="gauge-label">F</text>
+        </svg>
+        <div class="gauge-readout">
+          <div class="readout-main"><span id="tank-used">0</span> / <span id="tank-max">200k</span></div>
+          <div class="readout-sub"><span id="tank-pct">0.0%</span> used</div>
+          <div class="badge" id="tank-badge">Plenty left</div>
+        </div>
+      </div>
+
+      <!-- Efficiency (MPT) Gauge -->
+      <div class="gauge-card">
+        <h2>Efficiency (MPT)</h2>
+        <svg class="gauge-svg" viewBox="0 0 200 130" aria-label="Efficiency gauge">
+          <path id="eff-bg" d="M 20 110 A 80 80 0 0 1 180 110"
+                fill="none" stroke="#333" stroke-width="14" stroke-linecap="round" />
+          <path id="eff-fill" d="M 20 110 A 80 80 0 0 1 180 110"
+                fill="none" stroke="#378ADD" stroke-width="14" stroke-linecap="round"
+                stroke-dasharray="251.3 251.3" stroke-dashoffset="251.3" />
+          <line id="eff-needle" x1="100" y1="110" x2="180" y2="110"
+                stroke="#fff" stroke-width="3" stroke-linecap="round" />
+          <circle cx="100" cy="110" r="5" fill="#fff" />
+          <text x="15" y="128" class="gauge-label">15k</text>
+          <text x="170" y="128" class="gauge-label">500</text>
+        </svg>
+        <div class="gauge-readout">
+          <div class="readout-main">avg <span id="eff-mpt">0</span> tok/prompt</div>
+          <div class="readout-sub">efficiency</div>
+          <div class="badge" id="eff-badge">Efficient</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SLIDER CONTROLS ───────────────────────────── -->
+    <section class="controls">
+      <h2>Simulate Usage</h2>
+
+      <div class="slider-group">
+        <label for="s-max" class="slider-label">Max Tokens (context window)</label>
+        <input type="range" id="s-max" min="32000" max="200000" step="1000" value="200000"
+               aria-label="Context window max tokens" />
+        <span class="slider-value" id="s-max-val">200,000</span>
+      </div>
+
+      <div class="slider-group">
+        <label for="s-used" class="slider-label">Tokens Used</label>
+        <input type="range" id="s-used" min="0" max="200000" step="500" value="0"
+               aria-label="Tokens used so far" />
+        <span class="slider-value" id="s-used-val">0</span>
+      </div>
+
+      <div class="slider-group">
+        <label for="s-mpt" class="slider-label">Avg Tokens/Prompt (MPT)</label>
+        <input type="range" id="s-mpt" min="100" max="15000" step="100" value="1000"
+               aria-label="Average tokens per prompt" />
+        <span class="slider-value" id="s-mpt-val">1,000</span>
+      </div>
+
+      <div id="input-warning" style="display:none; color:var(--color-text-danger); font-size:12px; margin-top:6px;"></div>
+    </section>
+
+    <!-- ── METRICS STRIP ─────────────────────────────── -->
+    <section class="metrics-strip">
+      <div class="metric">
+        <div class="metric-label">Tokens Used</div>
+        <div class="metric-value" id="m-used">0</div>
+        <div class="metric-sub" id="m-used-sub">of 200k ctx</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Tank Level</div>
+        <div class="metric-value" id="m-pct">0.0%</div>
+        <div class="metric-sub" id="m-level">Plenty left</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Tokens/Prompt</div>
+        <div class="metric-value" id="m-mpt">1,000</div>
+        <div class="metric-sub">avg per msg</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Prompts Left</div>
+        <div class="metric-value" id="m-left">200</div>
+        <div class="metric-sub">est. at avg</div>
+      </div>
+    </section>
+
+    <!-- ── PROMPT LOG ────────────────────────────────── -->
+    <section class="prompt-log">
+      <h2>Recent Prompts</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Tokens ↑</th>
+            <th>Tokens ↓</th>
+            <th>Total</th>
+            <th>Running</th>
+            <th>Mode</th>
+          </tr>
+        </thead>
+        <tbody id="log-body">
+          <tr><td colspan="6" class="empty">No prompts logged yet. Drag the sliders to simulate.</td></tr>
+        </tbody>
+      </table>
+      <button id="test-extremes">Test Extremes</button>
+    </section>
+  </main>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

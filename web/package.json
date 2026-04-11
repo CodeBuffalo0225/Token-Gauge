@@ -1,0 +1,9 @@
+{
+  "name": "token-gauge-web",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node serve.js"
+  }
+}

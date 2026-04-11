@@ -79,10 +79,13 @@ function buildSemicircle(fraction, colorFn, fillDir = 'ltr') {
   return grid.map((row) => row.join(''));
 }
 
-function tankColor(pct) {
-  if (pct < 0.5) return chalk.green;
-  if (pct < 0.75) return chalk.yellow;
-  return chalk.red;
+// Tank color is derived from REMAINING percentage (not used).
+// Plenty left = green, getting low = yellow, nearly empty = red.
+function tankColor(usedPct) {
+  const remainingPct = 1 - usedPct;
+  if (remainingPct > 0.5) return chalk.green;   // plenty left
+  if (remainingPct > 0.25) return chalk.yellow; // getting low
+  return chalk.red;                              // nearly empty
 }
 
 function mptColor(avg) {
