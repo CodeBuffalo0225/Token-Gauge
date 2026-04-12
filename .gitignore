@@ -137,3 +137,5 @@ vite.config.ts.timestamp-*
 
 # Token Gauge specific
 session.json
+config.json
+autotrack-watermarks.json

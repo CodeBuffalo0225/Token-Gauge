@@ -7,6 +7,8 @@ import { renderDashboard } from './gauge.js';
 import { runLive } from './modes/live.js';
 import { runManual } from './modes/manual.js';
 import { runEstimate } from './modes/estimate.js';
+import { loadConfig, setConfig } from './config.js';
+import { backfill, startWatcher } from './autotrack.js';
 
 const DEFAULT_MAX_TOKENS = 200_000;
 
@@ -18,6 +20,11 @@ function parseArgs(argv) {
     reset: false,
     status: false,
     watch: false,
+    autotrack: null,         // 'on' | 'off' | null
+    weekly: null,            // 'on' | 'off' | null
+    weeklyBudget: null,      // number | null
+    backfillNow: false,
+    daemon: false,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -34,6 +41,16 @@ function parseArgs(argv) {
       args.status = true;
     } else if (arg === '--watch') {
       args.watch = true;
+    } else if (arg === '--autotrack' && argv[i + 1]) {
+      args.autotrack = argv[++i];
+    } else if (arg === '--weekly' && argv[i + 1]) {
+      args.weekly = argv[++i];
+    } else if (arg === '--weekly-budget' && argv[i + 1]) {
+      args.weeklyBudget = parseInt(argv[++i].replace(/[,_]/g, ''), 10);
+    } else if (arg === '--backfill') {
+      args.backfillNow = true;
+    } else if (arg === '--daemon') {
+      args.daemon = true;
     }
   }
 
@@ -103,6 +120,39 @@ async function showModePicker() {
 async function main() {
   const args = parseArgs(process.argv);
   let session = loadSession();
+
+  // ── Config toggles (apply BEFORE rendering anything) ──
+  if (args.autotrack === 'on' || args.autotrack === 'off') {
+    setConfig('autotrack', args.autotrack === 'on');
+    console.log(chalk.green(`Autotrack ${args.autotrack}.`));
+  }
+  if (args.weekly === 'on' || args.weekly === 'off') {
+    setConfig('weeklyMode', args.weekly === 'on');
+    console.log(chalk.green(`Weekly tank ${args.weekly}.`));
+  }
+  if (args.weeklyBudget && args.weeklyBudget > 0) {
+    setConfig('weeklyBudget', args.weeklyBudget);
+    console.log(chalk.green(`Weekly budget set to ${args.weeklyBudget.toLocaleString()} tokens.`));
+  }
+
+  // If only toggle flags were provided (no mode/status/watch/reset/backfill), exit cleanly.
+  const toggleOnly =
+    (args.autotrack || args.weekly || args.weeklyBudget) &&
+    !args.reset && !args.status && !args.watch && !args.mode && !args.backfillNow && !args.daemon;
+  if (toggleOnly) return;
+
+  if (args.backfillNow) {
+    const r = backfill();
+    console.log(chalk.green(`✓ Backfill: ${r.entries} entries from ${r.files} transcripts`));
+    session = loadSession();
+    renderDashboard(session, session.maxTokens || DEFAULT_MAX_TOKENS);
+    return;
+  }
+
+  if (args.daemon) {
+    startWatcher();
+    return;
+  }
 
   if (args.reset) {
     session = resetSession();

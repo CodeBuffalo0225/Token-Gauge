@@ -1,6 +1,13 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { getTotalTokens, getAvgTokensPerPrompt, getPromptsLeft } from './tracker.js';
+import {
+  getTotalTokens,
+  getAvgTokensPerPrompt,
+  getContextTokens,
+  getContextPromptsLeft,
+  getWeeklyTokens,
+} from './tracker.js';
+import { loadConfig } from './config.js';
 
 // ── Semicircle arc layout ──────────────────────────────────
 //
@@ -115,10 +122,13 @@ function boxLine(content, width) {
 }
 
 export function renderDashboard(session, maxTokens) {
-  const total = getTotalTokens(session);
-  const pct = total / maxTokens;
+  // CONTEXT TANK reflects the LIVE context window of the current
+  // claude session (last turn's input total), not lifetime cumulative.
+  const total = getContextTokens(session);
+  const pct = maxTokens > 0 ? total / maxTokens : 0;
   const avg = getAvgTokensPerPrompt(session);
-  const left = getPromptsLeft(session, maxTokens);
+  const left = getContextPromptsLeft(session, maxTokens);
+  const lifetime = getTotalTokens(session);
 
   const BOX_INNER = ARC_FULL_WIDTH + 2; // content width inside box
   const BOX_OUTER = BOX_INNER + 4;      // with ║ + space on each side
@@ -212,6 +222,40 @@ export function renderDashboard(session, maxTokens) {
   );
 
   console.log('\n' + metricsTable.toString());
+
+  // ── WEEKLY TANK (optional) ─────────────────────────────────
+  const cfg = loadConfig();
+  if (cfg.weeklyMode) {
+    const weeklyUsed = getWeeklyTokens(session);
+    const weeklyBudget = cfg.weeklyBudget || 10_000_000;
+    const weeklyPct = weeklyBudget > 0 ? Math.min(1, weeklyUsed / weeklyBudget) : 0;
+    const weeklyFrac = 1 - weeklyPct; // E left, F right
+    const weeklyArc = buildSemicircle(weeklyFrac, tankColor(weeklyPct), 'ltr');
+    const wTitle = ' WEEKLY TANK ';
+    const wBorderLen = Math.max(0, Math.floor((BOX_INNER - wTitle.length) / 2));
+    const wTopBorder = '═'.repeat(wBorderLen);
+    const wTopExtra = '═'.repeat(BOX_INNER - wBorderLen * 2 - wTitle.length);
+
+    const wLines = [''];
+    wLines.push(`  ╔${wTopBorder}${wTitle}${wTopBorder}${wTopExtra}╗`);
+    for (let r = 0; r < ARC_ROWS; r++) {
+      wLines.push(`  ║ ${weeklyArc[r]} ║`);
+    }
+    wLines.push(`  ║ ${centerText('E' + ' '.repeat(ARC_FULL_WIDTH - 2) + 'F', BOX_INNER)} ║`);
+    wLines.push(`  ║ ${centerText(`${shortNum(weeklyUsed)} / ${shortNum(weeklyBudget)}`, BOX_INNER)} ║`);
+    wLines.push(`  ║ ${centerText(`${(weeklyPct * 100).toFixed(1)}% used this week`, BOX_INNER)} ║`);
+    const weekStartLabel = session.weekStart ? new Date(session.weekStart).toLocaleDateString() : '—';
+    wLines.push(`  ║ ${centerText(`week of ${weekStartLabel}`, BOX_INNER)} ║`);
+    wLines.push(`  ╚${'═'.repeat(BOX_INNER + 2)}╝`);
+    console.log(wLines.join('\n'));
+  }
+
+  // ── LIFETIME STRIP ────────────────────────────────────────
+  console.log(
+    '\n  ' +
+    chalk.dim(`Lifetime: ${formatNum(lifetime)} tokens across ${formatNum(session.promptCount)} prompts`) +
+    (session.currentSessionId ? chalk.dim(`  •  current session: ${session.currentSessionId.slice(0, 8)}`) : '')
+  );
 
   // ── PROMPT LOG ──
   const recentPrompts = session.promptLog.slice(-5);
