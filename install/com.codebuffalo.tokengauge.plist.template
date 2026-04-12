@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Token Gauge launchd agent template.
+
+  Install:
+    1. Replace {{HOME}} and {{REPO}} with your actual paths.
+    2. Replace {{NODE}} with your node binary path (e.g. /usr/local/bin/node
+       or the output of `which node`).
+    3. Copy to ~/Library/LaunchAgents/com.codebuffalo.tokengauge.plist
+    4. Run: ./daemon.sh start
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.codebuffalo.tokengauge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{NODE}}</string>
+        <string>{{REPO}}/index.js</string>
+        <string>--daemon</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{REPO}}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{REPO}}/daemon.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{REPO}}/daemon.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

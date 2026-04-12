@@ -139,3 +139,5 @@ vite.config.ts.timestamp-*
 session.json
 config.json
 autotrack-watermarks.json
+daemon.log
+daemon.err.log
