@@ -16,6 +16,7 @@ import { loadConfig } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects');
+const COWORK_DIR = join(homedir(), 'Library', 'Application Support', 'Claude', 'local-agent-mode-sessions');
 const WATERMARK_FILE = join(__dirname, 'autotrack-watermarks.json');
 
 // ── Watermark tracking ───────────────────────────────────
@@ -37,38 +38,62 @@ function saveWatermarks(marks) {
 
 // ── Find all JSONL transcript files ──────────────────────
 
-function findTranscripts() {
-  if (!existsSync(PROJECTS_DIR)) return [];
-  const files = [];
-  const projects = readdirSync(PROJECTS_DIR);
-  for (const proj of projects) {
-    const projPath = join(PROJECTS_DIR, proj);
+// Recursively collect all .jsonl files under a directory (max depth to avoid runaway).
+function collectJsonl(dir, maxDepth, depth = 0) {
+  if (depth > maxDepth) return [];
+  const results = [];
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry);
     let stat;
     try {
-      stat = statSync(projPath);
+      stat = statSync(full);
     } catch {
       continue;
     }
-    if (!stat.isDirectory()) continue;
-    let entries;
-    try {
-      entries = readdirSync(projPath);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry.endsWith('.jsonl')) {
-        files.push(join(projPath, entry));
-      }
+    if (stat.isFile() && entry.endsWith('.jsonl')) {
+      results.push(full);
+    } else if (stat.isDirectory()) {
+      results.push(...collectJsonl(full, maxDepth, depth + 1));
     }
   }
+  return results;
+}
+
+function findTranscripts() {
+  const files = [];
+
+  // Claude Code — ~/.claude/projects/<project>/<sessionId>.jsonl (depth 2)
+  if (existsSync(PROJECTS_DIR)) {
+    files.push(...collectJsonl(PROJECTS_DIR, 2));
+  }
+
+  // Claude Cowork — deeply nested JSONL in local-agent-mode-sessions (depth 8)
+  if (existsSync(COWORK_DIR)) {
+    files.push(...collectJsonl(COWORK_DIR, 8));
+  }
+
   return files;
 }
 
-// Derive a sessionId from filename if the JSONL line doesn't carry one.
+// Derive a sessionId from the file path. For Cowork audit.jsonl files
+// we include the parent UUID to avoid collisions across sessions.
 function sessionIdFromPath(p) {
-  const base = p.split('/').pop() || p;
-  return base.replace(/\.jsonl$/, '');
+  const parts = p.split('/');
+  const base = parts.pop() || p;
+  const name = base.replace(/\.jsonl$/, '');
+  // Cowork audit files: local_<uuid>/audit.jsonl → "cowork-<uuid>"
+  if (name === 'audit' && parts.length > 0) {
+    const parent = parts.pop() || '';
+    const id = parent.replace(/^local_/, '');
+    return `cowork-${id}`;
+  }
+  return name;
 }
 
 // ── Parse a single JSONL line and extract usage ──────────
@@ -105,6 +130,7 @@ function parseUsageFromLine(line, fallbackSessionId) {
     outputTokens,
     timestamp: obj.timestamp || new Date().toISOString(),
     sessionId: obj.sessionId || fallbackSessionId,
+    source: null, // caller fills in based on file path
     model: obj.message?.model || null,
   };
 }
@@ -129,10 +155,14 @@ function processFile(filePath, fromOffset) {
   const completeLines = completeContent.split('\n').filter((l) => l);
 
   const fallbackSessionId = sessionIdFromPath(filePath);
+  const isCowork = filePath.includes('local-agent-mode-sessions');
   const entries = [];
   for (const line of completeLines) {
     const usage = parseUsageFromLine(line, fallbackSessionId);
-    if (usage) entries.push(usage);
+    if (usage) {
+      usage.source = isCowork ? 'cowork' : 'claude-code';
+      entries.push(usage);
+    }
   }
 
   return {
@@ -200,6 +230,9 @@ function applyEntries(entries) {
       session.weeklyUsedOutput = (session.weeklyUsedOutput || 0) + e.outputTokens;
     }
 
+    // Detect source from sessionId / path context
+    const source = e.source || 'claude-code';
+
     // Append to prompt log (we'll trim after)
     session.promptLog.push({
       index: session.promptCount,
@@ -210,7 +243,7 @@ function applyEntries(entries) {
       mode: 'autotrack',
       estimated: false,
       timestamp: e.timestamp,
-      source: 'claude-code',
+      source,
       model: e.model,
       sessionId: sid,
     });
