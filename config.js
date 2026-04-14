@@ -14,6 +14,8 @@ const DEFAULT_CONFIG = {
   weeklyMode: false,
   weeklyBudget: 10_000_000, // 10M tokens/week default
   contextMax: 200_000,
+  weeklyResetDay: 1,        // 1=Monday (JS getDay: 0=Sun)
+  weeklyResetHourUtc: 20,   // 20:00 UTC = 4pm EDT
 };
 
 export function loadConfig() {

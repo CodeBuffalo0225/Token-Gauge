@@ -151,22 +151,45 @@ export function getWeeklyTokens(session) {
   return (session.weeklyUsedInput || 0) + (session.weeklyUsedOutput || 0);
 }
 
-// Returns the most recent Monday at 00:00 local time as ISO string.
-export function getMostRecentMonday(now = new Date()) {
+// Returns the most recent weekly reset boundary as an ISO string.
+// Anthropic resets weekly limits at a specific day + hour (e.g. Monday 4pm EDT = 20:00 UTC).
+export function getMostRecentReset(now = new Date(), resetDay = 1, resetHourUtc = 20) {
   const d = new Date(now);
-  const day = d.getDay(); // 0=Sun, 1=Mon, ...
-  const diff = day === 0 ? 6 : day - 1;
-  d.setDate(d.getDate() - diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+
+  // Walk back to the most recent resetDay at resetHourUtc
+  // First, get current UTC day-of-week and hour
+  const currentDay = d.getUTCDay();
+  const currentHour = d.getUTCHours();
+
+  // Days since last resetDay (wrapping around the week)
+  let daysSince = (currentDay - resetDay + 7) % 7;
+
+  // If it's the reset day but before the reset hour, the most recent
+  // reset was 7 days ago (last week's reset).
+  if (daysSince === 0 && currentHour < resetHourUtc) {
+    daysSince = 7;
+  }
+
+  const resetDate = new Date(Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate() - daysSince,
+    resetHourUtc, 0, 0, 0
+  ));
+
+  return resetDate.toISOString();
 }
 
 // Resets weekly counters if past the week boundary.
-export function rolloverWeekIfNeeded(session) {
+// Pass cfg with weeklyResetDay and weeklyResetHourUtc.
+export function rolloverWeekIfNeeded(session, cfg = {}) {
   const now = new Date();
-  const monday = getMostRecentMonday(now);
-  if (!session.weekStart || new Date(session.weekStart).getTime() < new Date(monday).getTime()) {
-    session.weekStart = monday;
+  const resetDay = cfg.weeklyResetDay ?? 1;
+  const resetHourUtc = cfg.weeklyResetHourUtc ?? 20;
+  const boundary = getMostRecentReset(now, resetDay, resetHourUtc);
+
+  if (!session.weekStart || new Date(session.weekStart).getTime() < new Date(boundary).getTime()) {
+    session.weekStart = boundary;
     session.weeklyUsedInput = 0;
     session.weeklyUsedOutput = 0;
   }

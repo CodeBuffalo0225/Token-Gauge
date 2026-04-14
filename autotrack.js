@@ -124,12 +124,16 @@ function parseUsageFromLine(line, fallbackSessionId) {
 
   if (inputTokens === 0 && outputTokens === 0) return null;
 
+  // Cowork audit.jsonl uses _audit_timestamp; Claude Code uses timestamp.
+  const timestamp = obj.timestamp || obj._audit_timestamp || null;
+  if (!timestamp) return null; // skip entries with no timestamp — can't place them in time
+
   return {
     inputTokens,
     billableInput,
     outputTokens,
-    timestamp: obj.timestamp || new Date().toISOString(),
-    sessionId: obj.sessionId || fallbackSessionId,
+    timestamp,
+    sessionId: obj.sessionId || obj.session_id || fallbackSessionId,
     source: null, // caller fills in based on file path
     model: obj.message?.model || null,
   };
@@ -180,9 +184,8 @@ function applyEntries(entries) {
   if (entries.length === 0) return null;
 
   let session = loadSession();
-  rolloverWeekIfNeeded(session);
-
   const cfg = loadConfig();
+  rolloverWeekIfNeeded(session, cfg);
   const weeklyOn = cfg.weeklyMode;
   const weekStartMs = session.weekStart ? new Date(session.weekStart).getTime() : 0;
 
