@@ -141,3 +141,6 @@ config.json
 autotrack-watermarks.json
 daemon.log
 daemon.err.log
+
+# macOS
+.DS_Store
